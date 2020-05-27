@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,9 @@ const (
 
 	// DefaultDuration specifies the default length of the CPU profile snapshot.
 	DefaultDuration = time.Second * 15
+
+	defaultAgentHost = "localhost"
+	defaultTraceAgentPort = 8126
 )
 
 const (
@@ -44,6 +48,8 @@ var defaultProfileTypes = []ProfileType{CPUProfile, HeapProfile}
 type config struct {
 	apiKey        string
 	apiURL        string
+	agentHost     string
+	agentPort     uint16
 	service, env  string
 	hostname      string
 	statsd        StatsdClient
@@ -68,10 +74,24 @@ func (c *config) addProfileType(t ProfileType) {
 	c.types[t] = struct{}{}
 }
 
+func (c *config) agentless() bool {
+	return c.apiKey != ""
+}
+
+func (c *config) targetURL() string {
+	if c.agentless() {
+		return c.apiURL
+	}
+
+	return "http://" + c.agentHost + ":" + strconv.FormatUint(uint64(c.agentPort), 10) + "/profiling/v1/input"
+}
+
 func defaultConfig() *config {
 	c := config{
 		env:           defaultEnv,
 		apiURL:        defaultAPIURL,
+		agentHost:     defaultAgentHost,
+		agentPort:     defaultTraceAgentPort,
 		service:       filepath.Base(os.Args[0]),
 		statsd:        &statsd.NoOpClient{},
 		period:        DefaultPeriod,
@@ -84,6 +104,19 @@ func defaultConfig() *config {
 		c.addProfileType(t)
 	}
 
+	if v := os.Getenv("DD_AGENT_HOST"); v != "" {
+		WithAgentHost(v)(&c)
+	}
+	if v := os.Getenv("DD_TRACE_AGENT_PORT"); v != "" {
+		p, err := strconv.ParseUint(v, 10, 16)
+		if err != nil {
+			log.Warn("value of DD_TRACE_AGENT_PORT env variable is not a valid number between 0 and 65535: %v", v)
+		}
+		WithTraceAgentPort(uint16(p))(&c)
+	}
+	if v := os.Getenv("DD_API_KEY"); v != "" {
+		WithAPIKey(v)(&c)
+	}
 	if v := os.Getenv("DD_SITE"); v != "" {
 		WithSite(v)(&c)
 	}
@@ -110,6 +143,20 @@ func defaultConfig() *config {
 
 // An Option is used to configure the profiler's behaviour.
 type Option func(*config)
+
+// WithAgentHost specified the hostname to use to reach datadog trace agent.
+func WithAgentHost(host string) Option {
+	return func(cfg *config) {
+		cfg.agentHost = host
+	}
+}
+
+// WithTraceAgentPort specified the port to use to reach datadog trace agent.
+func WithTraceAgentPort(port uint16) Option {
+	return func(cfg *config) {
+		cfg.agentPort = port
+	}
+}
 
 // WithAPIKey specifies the API key to use when connecting to the Datadog API.
 func WithAPIKey(key string) Option {

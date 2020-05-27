@@ -6,8 +6,8 @@
 package profiler
 
 import (
-	"errors"
 	"fmt"
+	"github.com/DataDog/dd-trace-go/ddtrace/tracer"
 	"os"
 	"runtime"
 	"sync"
@@ -24,9 +24,6 @@ var (
 	activeProfiler *profiler
 )
 
-// ErrMissingAPIKey is returned when an API key was not found by the profiler.
-var ErrMissingAPIKey = errors.New("API key is missing; provide it using the profiler.WithAPIKey option")
-
 // Start starts the profiler. It may return an error if an API key is not provided by means of
 // the WithAPIKey option, or if a hostname is not found.
 func Start(opts ...Option) error {
@@ -34,13 +31,14 @@ func Start(opts ...Option) error {
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if cfg.apiKey == "" {
-		return ErrMissingAPIKey
-	}
 	if cfg.hostname == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
-			return fmt.Errorf("could not obtain hostname: %v; try specifying it using profiler.WithHostname", err)
+			if cfg.agentless() {
+				return fmt.Errorf("could not obtain hostname: %v; try specifying it using profiler.WithHostname", err)
+			} else {
+				log.Warn("unable to look up hostname: %v", err)
+			}
 		}
 		cfg.hostname = hostname
 	}
@@ -67,16 +65,20 @@ func Stop() {
 // profiler collects and sends preset profiles to the Datadog API at a given frequency
 // using a given configuration.
 type profiler struct {
-	cfg        *config           // profile configuration
-	out        chan batch        // upload queue
-	uploadFunc func(batch) error // defaults to (*profiler).upload; replaced in tests
-	exit       chan struct{}     // exit signals the profiler to stop; it is closed after stopping
+	cfg         *config           // profile configuration
+	targetUrl   string            // url to which we'll try uploading
+	containerId string
+	out         chan batch        // upload queue
+	uploadFunc  func(batch) error // defaults to (*profiler).upload; replaced in tests
+	exit        chan struct{}     // exit signals the profiler to stop; it is closed after stopping
 }
 
 // newProfiler creates a new, unstarted profiler.
 func newProfiler(cfg *config) *profiler {
 	p := profiler{
 		cfg:  cfg,
+		targetUrl: cfg.targetURL(),
+		containerId: tracer.FindContainerID(),
 		out:  make(chan batch, outChannelSize),
 		exit: make(chan struct{}),
 	}

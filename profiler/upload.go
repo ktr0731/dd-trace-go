@@ -24,6 +24,8 @@ import (
 const maxRetries = 2
 
 var httpClient = &http.Client{
+	// FIXME: Lets bump this? Intake times out at 30 seconds, we probably shouldn't bail out earlier than this.
+	//        This might require some reworking of the upload queue though...
 	Timeout: 5 * time.Second,
 }
 
@@ -84,11 +86,16 @@ func (p *profiler) doRequest(bat batch) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", p.cfg.apiURL, body)
+	req, err := http.NewRequest("POST", p.targetUrl, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("DD-API-KEY", p.cfg.apiKey)
+	if p.cfg.agentless() {
+		req.Header.Set("DD-API-KEY", p.cfg.apiKey)
+	}
+	if p.containerId != "" {
+		req.Header.Set("Datadog-Container-ID", p.containerId)
+	}
 	req.Header.Set("Content-Type", contentType)
 
 	resp, err := httpClient.Do(req)
