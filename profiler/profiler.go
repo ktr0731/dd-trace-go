@@ -155,8 +155,18 @@ func (p *profiler) enqueueUpload(bat batch) {
 func (p *profiler) send() {
 	defer close(p.exit)
 	for bat := range p.out {
+		if p.uploadFunc == nil {
+			continue
+		}
 		if err := p.uploadFunc(bat); err != nil {
 			log.Error("Failed to upload profile: %v\n", err)
+
+			if err == ErrOldAgent {
+				// Turn any future uploads into noops since we know they won't work.
+				p.uploadFunc = nil
+				// Trigger stop of the profiler (do it async otherwise we'd deadlock).
+				go p.stop()
+			}
 		}
 	}
 }

@@ -23,9 +23,12 @@ import (
 // maxRetries specifies the maximum number of retries to have when an error occurs.
 const maxRetries = 2
 
+var ErrOldAgent = errors.New("datadog agent is not accepting profiles. Agent-based profiling deployments " +
+	"require Datadog agent >= 7.20")
+
 var httpClient = &http.Client{
-	// FIXME: Lets bump this? Intake times out at 30 seconds, we probably shouldn't bail out earlier than this.
-	//        This might require some reworking of the upload queue though...
+	// TODO(alexjf): Lets bump this? Intake times out at 30 seconds, we probably shouldn't bail out earlier than this.
+	//               This might require some reworking of the upload queue though...
 	Timeout: 5 * time.Second,
 }
 
@@ -106,6 +109,10 @@ func (p *profiler) doRequest(bat batch) error {
 	if resp.StatusCode/100 == 5 {
 		// 5xx can be retried
 		return &retriableError{errors.New(resp.Status)}
+	}
+	if resp.StatusCode == 404 && !p.cfg.agentless() {
+		// 404 from the agent means we have an old agent version without profiling endpoint
+		return ErrOldAgent
 	}
 	if resp.StatusCode != 200 {
 		return errors.New(resp.Status)
