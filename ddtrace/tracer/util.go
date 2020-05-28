@@ -6,18 +6,8 @@
 package tracer
 
 import (
-	"bufio"
-	"os"
-	"regexp"
 	"strconv"
 	"strings"
-)
-
-var (
-	// expLine matches a line in the /proc/self/cgroup file. It has a submatch for the last element (path), which contains the container ID.
-	expLine = regexp.MustCompile(`^\d+:[^:]*:(.+)$`)
-	// expContainerID matches contained IDs and sources. Source: https://github.com/Qard/container-info/blob/master/index.js
-	expContainerID = regexp.MustCompile(`([0-9a-f]{8}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{12}|[0-9a-f]{64})(?:.scope)?$`)
 )
 
 // toFloat64 attempts to convert value into a float64. If the value is an integer
@@ -72,23 +62,4 @@ func parseUint64(str string) (uint64, error) {
 		return uint64(id), nil
 	}
 	return strconv.ParseUint(str, 10, 64)
-}
-
-func FindContainerID() string {
-	f, err := os.Open("/proc/self/cgroup")
-	if err == nil {
-		defer f.Close()
-		scn := bufio.NewScanner(f)
-		for scn.Scan() {
-			path := expLine.FindStringSubmatch(scn.Text())
-			if len(path) != 2 {
-				// invalid entry, continue
-				continue
-			}
-			if id := expContainerID.FindString(path[1]); id != "" {
-				return id
-			}
-		}
-	}
-	return ""
 }

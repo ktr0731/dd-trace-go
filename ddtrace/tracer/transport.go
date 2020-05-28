@@ -6,8 +6,8 @@
 package tracer
 
 import (
-	"bufio"
 	"fmt"
+	"gopkg.in/DataDog/dd-trace-go.v1/internal"
 	"io"
 	"net"
 	"net/http"
@@ -92,7 +92,7 @@ func newHTTPTransport(addr string, client *http.Client) *httpTransport {
 		"Datadog-Meta-Tracer-Version":   version.Tag,
 		"Content-Type":                  "application/msgpack",
 	}
-	containerId := FindContainerID()
+	containerId := internal.FindContainerID()
 	if containerId != "" {
 		defaultHeaders["Datadog-Container-ID"] = containerId
 	}
@@ -101,22 +101,6 @@ func newHTTPTransport(addr string, client *http.Client) *httpTransport {
 		client:   client,
 		headers:  defaultHeaders,
 	}
-}
-
-// readContainerID finds the first container ID reading from r and returns it.
-func readContainerID(r io.Reader) (id string, ok bool) {
-	scn := bufio.NewScanner(r)
-	for scn.Scan() {
-		path := expLine.FindStringSubmatch(scn.Text())
-		if len(path) != 2 {
-			// invalid entry, continue
-			continue
-		}
-		if id := expContainerID.FindString(path[1]); id != "" {
-			return id, true
-		}
-	}
-	return "", false
 }
 
 func (t *httpTransport) send(p *payload) (body io.ReadCloser, err error) {

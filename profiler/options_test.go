@@ -6,6 +6,7 @@
 package profiler
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,26 +17,50 @@ import (
 )
 
 func TestOptions(t *testing.T) {
+	t.Run("WithAgentAddr", func(t *testing.T) {
+		var cfg config
+		WithAgentAddr("test:123")(&cfg)
+		expectedUrl := "http://test:123/profiling/v1/input"
+		assert.Equal(t, expectedUrl, cfg.agentURL)
+		assert.Equal(t, expectedUrl, cfg.targetURL())
+	})
+	t.Run("WithAgentAddr/override", func(t *testing.T) {
+		os.Setenv("DD_AGENT_HOST", "bad_host")
+		defer os.Unsetenv("DD_AGENT_HOST")
+		os.Setenv("DD_TRACE_AGENT_PORT", "bad_port")
+		defer os.Unsetenv("DD_TRACE_AGENT_PORT")
+		var cfg config
+		WithAgentAddr("test:123")(&cfg)
+		expectedUrl := "http://test:123/profiling/v1/input"
+		assert.Equal(t, expectedUrl, cfg.agentURL)
+		assert.Equal(t, expectedUrl, cfg.targetURL())
+	})
 	t.Run("WithAPIKey", func(t *testing.T) {
 		var cfg config
 		WithAPIKey("123")(&cfg)
 		assert.Equal(t, "123", cfg.apiKey)
-		assert.True(t, cfg.agentless())
 	})
-
 	t.Run("WithAPIKey/override", func(t *testing.T) {
 		os.Setenv("DD_API_KEY", "apikey")
 		defer os.Unsetenv("DD_API_KEY")
 		var cfg config
 		WithAPIKey("123")(&cfg)
 		assert.Equal(t, "123", cfg.apiKey)
-		assert.True(t, cfg.agentless())
 	})
 
 	t.Run("WithURL", func(t *testing.T) {
 		var cfg config
 		WithURL("my-url")(&cfg)
 		assert.Equal(t, "my-url", cfg.apiURL)
+	})
+
+	t.Run("WithAPIKey + WithURL", func(t *testing.T) {
+		var cfg config
+		WithAPIKey("123")(&cfg)
+		WithURL("http://test:123/test")(&cfg)
+		assert.Equal(t, "123", cfg.apiKey)
+		assert.False(t, cfg.goingThroughAgent())
+		assert.Equal(t, "http://test:123/test", cfg.targetURL())
 	})
 
 	t.Run("WithPeriod", func(t *testing.T) {
@@ -136,6 +161,29 @@ func TestOptions(t *testing.T) {
 }
 
 func TestEnvVars(t *testing.T) {
+	t.Run("DD_AGENT_HOST", func(t *testing.T) {
+		os.Setenv("DD_AGENT_HOST", "agent_host_1")
+		defer os.Unsetenv("DD_AGENT_HOST")
+		cfg := defaultConfig()
+		assert.Equal(t, "http://agent_host_1:8126/profiling/v1/input", cfg.agentURL)
+	})
+
+	t.Run("DD_TRACE_AGENT_PORT", func(t *testing.T) {
+		os.Setenv("DD_TRACE_AGENT_PORT", "6218")
+		defer os.Unsetenv("DD_TRACE_AGENT_PORT")
+		cfg := defaultConfig()
+		assert.Equal(t, "http://localhost:6218/profiling/v1/input", cfg.agentURL)
+	})
+
+	t.Run("DD_AGENT_HOST+DD_TRACE_AGENT_PORT", func(t *testing.T) {
+		os.Setenv("DD_AGENT_HOST", "agent_host_1")
+		defer os.Unsetenv("DD_AGENT_HOST")
+		os.Setenv("DD_TRACE_AGENT_PORT", "6218")
+		defer os.Unsetenv("DD_TRACE_AGENT_PORT")
+		cfg := defaultConfig()
+		assert.Equal(t, "http://agent_host_1:6218/profiling/v1/input", cfg.agentURL)
+	})
+
 	t.Run("DD_API_KEY", func(t *testing.T) {
 		os.Setenv("DD_API_KEY", "123")
 		defer os.Unsetenv("DD_API_KEY")
@@ -183,9 +231,13 @@ func TestEnvVars(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	t.Run("base", func(t *testing.T) {
+		defaultAgentUrl := "http://" + net.JoinHostPort(defaultAgentHost, defaultAgentPort) + "/profiling/v1/input"
 		cfg := defaultConfig()
 		assert := assert.New(t)
 		assert.Equal(defaultAPIURL, cfg.apiURL)
+		assert.Equal(defaultAgentUrl, cfg.agentURL)
+		assert.True(cfg.goingThroughAgent())
+		assert.Equal(defaultAgentUrl, cfg.targetURL())
 		assert.Equal(defaultEnv, cfg.env)
 		assert.Equal(filepath.Base(os.Args[0]), cfg.service)
 		assert.Equal(len(defaultProfileTypes), len(cfg.types))

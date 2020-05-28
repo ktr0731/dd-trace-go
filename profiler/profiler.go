@@ -7,12 +7,12 @@ package profiler
 
 import (
 	"fmt"
-	"github.com/DataDog/dd-trace-go/ddtrace/tracer"
 	"os"
 	"runtime"
 	"sync"
 	"time"
 
+	"gopkg.in/DataDog/dd-trace-go.v1/internal"
 	"gopkg.in/DataDog/dd-trace-go.v1/internal/log"
 )
 
@@ -34,7 +34,7 @@ func Start(opts ...Option) error {
 	if cfg.hostname == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
-			if cfg.agentless() {
+			if !cfg.goingThroughAgent() {
 				return fmt.Errorf("could not obtain hostname: %v; try specifying it using profiler.WithHostname", err)
 			} else {
 				log.Warn("unable to look up hostname: %v", err)
@@ -65,8 +65,8 @@ func Stop() {
 // profiler collects and sends preset profiles to the Datadog API at a given frequency
 // using a given configuration.
 type profiler struct {
-	cfg         *config           // profile configuration
-	targetUrl   string            // url to which we'll try uploading
+	cfg         *config // profile configuration
+	targetUrl   string  // url to which we'll try uploading
 	containerId string
 	out         chan batch        // upload queue
 	uploadFunc  func(batch) error // defaults to (*profiler).upload; replaced in tests
@@ -76,11 +76,11 @@ type profiler struct {
 // newProfiler creates a new, unstarted profiler.
 func newProfiler(cfg *config) *profiler {
 	p := profiler{
-		cfg:  cfg,
-		targetUrl: cfg.targetURL(),
-		containerId: tracer.FindContainerID(),
-		out:  make(chan batch, outChannelSize),
-		exit: make(chan struct{}),
+		cfg:         cfg,
+		targetUrl:   cfg.targetURL(),
+		containerId: internal.FindContainerID(),
+		out:         make(chan batch, outChannelSize),
+		exit:        make(chan struct{}),
 	}
 	p.uploadFunc = p.upload
 	return &p

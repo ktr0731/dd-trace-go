@@ -93,7 +93,7 @@ func (p *profiler) doRequest(bat batch) error {
 	if err != nil {
 		return err
 	}
-	if p.cfg.agentless() {
+	if !p.cfg.goingThroughAgent() {
 		req.Header.Set("DD-API-KEY", p.cfg.apiKey)
 	}
 	if p.containerId != "" {
@@ -110,7 +110,7 @@ func (p *profiler) doRequest(bat batch) error {
 		// 5xx can be retried
 		return &retriableError{errors.New(resp.Status)}
 	}
-	if resp.StatusCode == 404 && !p.cfg.agentless() {
+	if resp.StatusCode == 404 && p.cfg.goingThroughAgent() {
 		// 404 from the agent means we have an old agent version without profiling endpoint
 		return ErrOldAgent
 	}
